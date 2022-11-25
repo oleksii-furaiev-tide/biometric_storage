@@ -19,6 +19,7 @@ import io.flutter.plugin.common.MethodChannel.Result
 import mu.KotlinLogging
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.security.InvalidKeyException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import javax.crypto.Cipher
@@ -61,6 +62,7 @@ enum class AuthenticationError(vararg val code: Int) {
 
     /** Authentication valid, but unknown */
     Failed(-2),
+    ResetBiometrics(-3),
     ;
 
     companion object {
@@ -250,7 +252,9 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
                             ui(resultError) { result.success(ret) }
                         }
                     } else {
-                        result.success(null)
+                        // trying to read a file which doesn't exist, must reset the biometrics
+                        resetStorage()
+                        result.error("AuthError:${AuthenticationError.ResetBiometrics}", "read:file does not exists", "read:file does not exists")
                     }
                 }
                 "delete" -> withStorage {
@@ -271,10 +275,19 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
         } catch (e: MethodCallException) {
             logger.error(e) { "Error while processing method call ${call.method}" }
             result.error(e.errorCode, e.errorMessage, e.errorDetails)
+        } catch (e: InvalidKeyException) {
+            // something wrong with the keystore, reset the biometrics
+            resetStorage()
+            result.error("AuthError:${AuthenticationError.ResetBiometrics}", e.message, e.toCompleteString())
         } catch (e: Exception) {
             logger.error(e) { "Error while processing method call '${call.method}'" }
             result.error("Unexpected Error", e.message, e.toCompleteString())
         }
+    }
+
+    private fun resetStorage() {
+        storageFiles.values.forEach { it.deleteFile() }
+        storageFiles.clear()
     }
 
     @AnyThread
@@ -286,9 +299,11 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
             cb()
         } catch (e: Throwable) {
             logger.error(e) { "Error while calling UI callback. This must not happen." }
+            // something really bad happened, should reset the biometrics
+            resetStorage()
             onError(
                 AuthenticationErrorInfo(
-                    AuthenticationError.Unknown,
+                    AuthenticationError.ResetBiometrics,
                     "Unexpected authentication error. ${e.localizedMessage}",
                     e
                 )
@@ -304,10 +319,12 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
             cb()
         } catch (e: Throwable) {
             logger.error(e) { "Error while calling worker callback. This must not happen." }
+            // something really bad happened, should reset the biometrics
+            resetStorage()
             handler.post {
                 onError(
                     AuthenticationErrorInfo(
-                        AuthenticationError.Unknown,
+                        AuthenticationError.ResetBiometrics,
                         "Unexpected authentication error. ${e.localizedMessage}",
                         e
                     )

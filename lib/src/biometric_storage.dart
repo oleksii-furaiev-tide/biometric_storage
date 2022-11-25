@@ -46,12 +46,15 @@ enum AuthExceptionCode {
   unknown,
   timeout,
   linuxAppArmorDenied,
+  // when there is an exception in the plugin itself due to invalid keystore
+  resetBiometrics,
 }
 
 const _authErrorCodeMapping = {
   'AuthError:UserCanceled': AuthExceptionCode.userCanceled,
   'AuthError:Canceled': AuthExceptionCode.canceled,
   'AuthError:Timeout': AuthExceptionCode.timeout,
+  'AuthError:ResetBiometrics': AuthExceptionCode.resetBiometrics,
 };
 
 class BiometricStorageException implements Exception {
