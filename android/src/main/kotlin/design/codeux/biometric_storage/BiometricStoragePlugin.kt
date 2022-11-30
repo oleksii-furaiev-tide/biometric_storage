@@ -19,6 +19,7 @@ import io.flutter.plugin.common.MethodChannel.Result
 import mu.KotlinLogging
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.security.GeneralSecurityException
 import java.security.InvalidKeyException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -202,7 +203,17 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
 
                 val promptInfo = getAndroidPromptInfo()
                 authenticate(cipher, promptInfo, options, {
-                    cb(cipher)
+                    try {
+                        cb(cipher)
+                    } catch (ex: GeneralSecurityException) {
+                    // trying to read/write to a file with an invalid keystore, must reset the biometrics
+                    resetStorage()
+                    result.error(
+                        "AuthError:${AuthenticationError.ResetBiometrics}",
+                        "read/write:trying to read/write a file with an invalid key",
+                        "read/write:trying to read/write a file with an invalid key"
+                    )
+                }
                 }, onError = resultError)
             }
 
@@ -235,6 +246,7 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
                     storageFiles[name] = BiometricStorageFile(applicationContext, name, options)
                     result.success(true)
                 }
+
                 "dispose" -> storageFiles.remove(getName())?.apply {
                     dispose()
                     result.success(true)
@@ -243,6 +255,7 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
                     "Tried to dispose non existing storage.",
                     null
                 )
+
                 "read" -> withStorage {
                     if (exists()) {
                         withAuth(CipherMode.Decrypt) {
@@ -254,9 +267,14 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
                     } else {
                         // trying to read a file which doesn't exist, must reset the biometrics
                         resetStorage()
-                        result.error("AuthError:${AuthenticationError.ResetBiometrics}", "read:file does not exists", "read:file does not exists")
+                        result.error(
+                            "AuthError:${AuthenticationError.ResetBiometrics}",
+                            "read:file does not exists",
+                            "read:file does not exists"
+                        )
                     }
                 }
+
                 "delete" -> withStorage {
                     if (exists()) {
                         result.success(deleteFile())
@@ -264,12 +282,14 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
                         result.success(false)
                     }
                 }
+
                 "write" -> withStorage {
                     withAuth(CipherMode.Encrypt) {
                         writeFile(it, requiredArgument(PARAM_WRITE_CONTENT))
                         ui(resultError) { result.success(true) }
                     }
                 }
+
                 else -> result.notImplemented()
             }
         } catch (e: MethodCallException) {
@@ -278,7 +298,11 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
         } catch (e: InvalidKeyException) {
             // something wrong with the keystore, reset the biometrics
             resetStorage()
-            result.error("AuthError:${AuthenticationError.ResetBiometrics}", e.message, e.toCompleteString())
+            result.error(
+                "AuthError:${AuthenticationError.ResetBiometrics}",
+                e.message,
+                e.toCompleteString()
+            )
         } catch (e: Exception) {
             logger.error(e) { "Error while processing method call '${call.method}'" }
             result.error("Unexpected Error", e.message, e.toCompleteString())
