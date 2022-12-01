@@ -24,6 +24,7 @@ import java.security.InvalidKeyException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import javax.crypto.Cipher
+import javax.crypto.IllegalBlockSizeException
 
 private val logger = KotlinLogging.logger {}
 
@@ -198,6 +199,14 @@ class BiometricStoragePlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
                         return cb(null)
                     } catch (e: UserNotAuthenticatedException) {
                         logger.debug(e) { "User requires (re)authentication. showing prompt ..." }
+                    } catch (e: IllegalBlockSizeException) {
+                        resetStorage()
+                        result.error(
+                            "AuthError:${AuthenticationError.ResetBiometrics}",
+                            "auth:trying to ask for a prompt with an invalid key",
+                            "auth:trying to ask for a prompt with an invalid key"
+                        )
+                        return
                     }
                 }
 
